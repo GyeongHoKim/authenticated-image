@@ -30,7 +30,30 @@ function hasValidSignature(name: string, url: URL): boolean {
   return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
-function send(res: ServerResponse, status: number, contentType: string, body: string): void {
+/** Options for {@link mockApi}. */
+export interface MockApiOptions {
+  /**
+   * Serve real photos from picsum.photos instead of generated SVGs. Needs network access, so
+   * only the demo turns it on.
+   */
+  photos?: boolean;
+}
+
+async function fetchPhoto(name: string): Promise<{ contentType: string; body: Buffer }> {
+  const response = await fetch(`https://picsum.photos/seed/${name}/480/320`);
+  if (!response.ok) throw new Error(`picsum.photos responded with ${response.status}`);
+  return {
+    contentType: response.headers.get('content-type') ?? 'image/jpeg',
+    body: Buffer.from(await response.arrayBuffer()),
+  };
+}
+
+function send(
+  res: ServerResponse,
+  status: number,
+  contentType: string,
+  body: string | Buffer,
+): void {
   res.statusCode = status;
   res.setHeader('Content-Type', contentType);
   res.setHeader('Cache-Control', 'no-store');
@@ -44,14 +67,19 @@ function sleep(ms: number): Promise<void> {
 /**
  * Handles a request under {@link MOCK_API_PREFIX} and returns `false` for any other path.
  *
- * - `GET /mock-api/images/:name` requires `Authorization: Bearer <MOCK_TOKEN>` and returns an SVG.
+ * - `GET /mock-api/images/:name` requires `Authorization: Bearer <MOCK_TOKEN>` and returns an SVG,
+ *   or a photo when `options.photos` is set.
  *   `?status=<code>` forces a status code and `?body=broken` returns bytes that are not an image.
  * - `GET /mock-api/presign/:name` requires the token and returns `{ url }`, a signed URL that is
  *   valid for 60 seconds.
- * - `GET /mock-api/signed/:name?expires=&sig=` returns the SVG when the signature is valid.
+ * - `GET /mock-api/signed/:name?expires=&sig=` returns the image when the signature is valid.
  * - `?delay=<ms>` delays any response.
  */
-export async function handleMockApi(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+export async function handleMockApi(
+  req: IncomingMessage,
+  res: ServerResponse,
+  options: MockApiOptions = {},
+): Promise<boolean> {
   const url = new URL(req.url ?? '/', 'http://localhost');
   if (!url.pathname.startsWith(`${MOCK_API_PREFIX}/`)) return false;
 
@@ -65,6 +93,11 @@ export async function handleMockApi(req: IncomingMessage, res: ServerResponse): 
   }
 
   const authorized = req.headers.authorization === `Bearer ${MOCK_TOKEN}`;
+  const sendImage = async (): Promise<void> => {
+    if (!options.photos) return send(res, 200, 'image/svg+xml', renderSvg(name));
+    const photo = await fetchPhoto(name);
+    send(res, 200, photo.contentType, photo.body);
+  };
 
   if (kind === 'images') {
     if (!authorized) send(res, 401, 'text/plain', 'Unauthorized');
@@ -72,7 +105,7 @@ export async function handleMockApi(req: IncomingMessage, res: ServerResponse): 
       send(res, Number(url.searchParams.get('status')), 'text/plain', 'Forced status');
     } else if (url.searchParams.get('body') === 'broken') {
       send(res, 200, 'image/png', 'this is not an image');
-    } else send(res, 200, 'image/svg+xml', renderSvg(name));
+    } else await sendImage();
     return true;
   }
 
@@ -88,7 +121,7 @@ export async function handleMockApi(req: IncomingMessage, res: ServerResponse): 
   }
 
   if (kind === 'signed') {
-    if (hasValidSignature(name, url)) send(res, 200, 'image/svg+xml', renderSvg(name));
+    if (hasValidSignature(name, url)) await sendImage();
     else send(res, 403, 'text/plain', 'Forbidden');
     return true;
   }
@@ -98,12 +131,12 @@ export async function handleMockApi(req: IncomingMessage, res: ServerResponse): 
 }
 
 /** Vite plugin that serves the mock image API on the dev server and in browser tests. */
-export function mockApi(): Plugin {
+export function mockApi(options: MockApiOptions = {}): Plugin {
   return {
     name: 'authenticated-image:mock-api',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        handleMockApi(req, res).then((handled) => {
+        handleMockApi(req, res, options).then((handled) => {
           if (!handled) next();
         }, next);
       });

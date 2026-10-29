@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>authenticated-image demo</title>
+    <link rel="stylesheet" href="./style.css" />
+    <script type="module" src="./main.ts"></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>&lt;authenticated-image&gt;</h1>
+        <p>Images behind <code>Authorization: Bearer …</code>, rendered like a plain <code>&lt;img&gt;</code>.</p>
+      </header>
+
+      <section>
+        <h2>Bearer token</h2>
+        <div class="grid">
+          <figure>
+            <authenticated-image src="/mock-api/images/harbor" alt="Photo loaded with a bearer token" width="240" height="160"></authenticated-image>
+            <figcaption>Loaded</figcaption>
+          </figure>
+          <figure>
+            <authenticated-image src="/mock-api/images/slow?delay=100000" alt="Photo that is still loading" width="240" height="160">
+              <div slot="loading" class="placeholder"><span class="spinner"></span>Loading…</div>
+            </authenticated-image>
+            <figcaption>Loading slot</figcaption>
+          </figure>
+          <figure>
+            <authenticated-image id="unauthorized" src="/mock-api/images/secret" alt="Photo the request is not allowed to see" width="240" height="160">
+              <div slot="error" class="placeholder error">401 Unauthorized<button type="button" data-retry>Retry</button></div>
+            </authenticated-image>
+            <figcaption>Error slot</figcaption>
+          </figure>
+          <figure>
+            <authenticated-image id="presigned" src="/mock-api/presign/forest" alt="Photo loaded from a presigned URL" width="240" height="160"></authenticated-image>
+            <figcaption>Presigned URL</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section>
+        <h2>Lazy loading</h2>
+        <p>Scroll down. The request starts 200px before the image enters the viewport.</p>
+        <div class="spacer" aria-hidden="true"></div>
+        <authenticated-image src="/mock-api/images/lazy" alt="Lazily loaded photo" loading="lazy" width="240" height="160"></authenticated-image>
+      </section>
+    </main>
+  </body>
+</html>
