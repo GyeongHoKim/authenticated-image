@@ -20,7 +20,7 @@ const RELOAD_TRIGGERS = ['src', 'loading'] as const;
  *
  * @fires load - The image has been decoded and rendered.
  * @fires error - Loading or decoding failed. `event.detail.error` describes why.
- * @slot loading - Shown while the image is loading.
+ * @slot loading - Shown while the image is loading or waiting to be lazily loaded.
  * @slot error - Shown when the image failed to load.
  * @csspart img - The inner `<img>`.
  * @cssprop --authenticated-image-object-fit - `object-fit` of the inner image. Defaults to `fill`.
@@ -48,13 +48,13 @@ export class AuthenticatedImageElement extends LitElement {
 
   /**
    * Loads this element's image instead of the global configuration. Disables caching. A new
-   * value applies on the next load.
+   * value applies on the next load; call `reload()` to apply it right away.
    */
   @property({ attribute: false }) fetcher?: Fetcher;
 
   /**
    * Headers for this element's request instead of the global configuration. Disables caching.
-   * A new value applies on the next load.
+   * A new value applies on the next load; call `reload()` to apply it right away.
    */
   @property({ attribute: false }) headers?: HeadersProvider;
 
@@ -74,9 +74,14 @@ export class AuthenticatedImageElement extends LitElement {
     return this._loader.error;
   }
 
+  /** Loads the image again. Elements that use the shared cache skip the cached copy. */
+  reload(): void {
+    this._loader.reload();
+  }
+
   protected override willUpdate(changed: PropertyValues<this>): void {
     if (RELOAD_TRIGGERS.some((key) => changed.has(key))) {
-      this._loader.load(this.src);
+      this._loader.load(this.src, { lazy: this.loading === 'lazy' });
     }
   }
 

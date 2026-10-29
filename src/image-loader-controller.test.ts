@@ -1,6 +1,6 @@
 import { ReactiveElement } from 'lit';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { configure, type Fetcher } from './config';
+import { clearCache, configure, type Fetcher } from './config';
 import type { AuthenticatedImageError } from './errors';
 import { ImageLoaderController } from './image-loader-controller';
 import { deferred, sleep, svgBlob } from './test-helpers';
@@ -113,5 +113,48 @@ describe('ImageLoaderController', () => {
     expect(loader.status).toBe('error');
     expect(onError).toHaveBeenCalledTimes(1);
     expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks once more when a string result fails to load', async () => {
+    const fetcher = vi.fn<Fetcher>(async () => 'data:expired');
+    const { loader, onError } = setup(fetcher);
+    loader.load('a');
+    await expect.poll(() => loader.url).toBe('data:expired');
+    loader.handleImageError();
+    await expect.poll(() => fetcher.mock.calls.length).toBe(2);
+    await expect.poll(() => loader.url).toBe('data:expired');
+    expect(onError).not.toHaveBeenCalled();
+
+    loader.handleImageError();
+    expect(loader.status).toBe('error');
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it('is busy while waiting for the viewport', async () => {
+    const fetcher = vi.fn<Fetcher>(async () => svgBlob());
+    const spacer = document.createElement('div');
+    spacer.style.height = '3000px';
+    document.body.prepend(spacer);
+    const { host, loader } = setup(fetcher);
+    loader.load('a', { lazy: true });
+    await host.updateComplete;
+    expect(loader.status).toBe('idle');
+    expect(loader.busy).toBe(true);
+    await sleep(100);
+    expect(fetcher).not.toHaveBeenCalled();
+
+    host.scrollIntoView();
+    await expect.poll(() => fetcher.mock.calls.length).toBe(1);
+  });
+
+  it('reload() skips the shared cached copy', async () => {
+    const fetcher = vi.fn<Fetcher>(async () => svgBlob());
+    configure({ fetcher });
+    clearCache();
+    const { loader } = setup();
+    loader.load('a');
+    await expect.poll(() => loader.url).toBeDefined();
+    loader.reload();
+    await expect.poll(() => fetcher.mock.calls.length).toBe(2);
   });
 });

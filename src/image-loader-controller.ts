@@ -2,6 +2,7 @@ import type { ReactiveController, ReactiveControllerHost } from 'lit';
 import { imageCache, type LoaderOverrides, resolveLoader } from './config';
 import { AuthenticatedImageError, toAuthenticatedImageError } from './errors';
 import { type CacheLease, type ImageUrl, revokeImageUrl, toImageUrl } from './image-cache';
+import { LazyController } from './lazy-controller';
 
 /** Loading state of an `<authenticated-image>`. */
 export type AuthenticatedImageStatus = 'idle' | 'loading' | 'loaded' | 'error';
@@ -24,13 +25,16 @@ export interface ImageLoaderOptions {
 export class ImageLoaderController implements ReactiveController {
   readonly #host: ReactiveControllerHost & Element;
   readonly #options: ImageLoaderOptions;
+  readonly #lazy: LazyController;
 
   #src = '';
+  #lazyLoad = false;
   #status: AuthenticatedImageStatus = 'idle';
   #url?: string;
   #error?: AuthenticatedImageError;
   #generation = 0;
   #needsStart = true;
+  #retried = false;
   #controller?: AbortController;
   #lease?: CacheLease;
   #ownedImage?: ImageUrl;
@@ -39,6 +43,7 @@ export class ImageLoaderController implements ReactiveController {
   constructor(host: ReactiveControllerHost & Element, options: ImageLoaderOptions) {
     this.#host = host;
     this.#options = options;
+    this.#lazy = new LazyController(host);
     host.addController(this);
   }
 
@@ -56,16 +61,30 @@ export class ImageLoaderController implements ReactiveController {
     return this.#error;
   }
 
-  /** Whether the image is loading. */
+  /** Whether the image is loading or waiting to be lazily loaded. */
   get busy(): boolean {
-    return this.#status === 'loading';
+    return this.#status === 'loading' || this.#lazy.waiting;
   }
 
-  /** Loads `src` on the host's next update and cancels the current load. */
-  load(src: string): void {
+  /**
+   * Loads `src` on the host's next update and cancels the current load. With `lazy`, the request
+   * waits until the host comes near the viewport.
+   */
+  load(src: string, { lazy = false }: { lazy?: boolean } = {}): void {
     this.#src = src;
+    this.#lazyLoad = lazy;
     this.#needsStart = true;
     this.#host.requestUpdate();
+  }
+
+  /** Loads the image again. A shared cached copy is skipped. */
+  reload(): void {
+    this.#lease?.detach();
+    if (!this.#host.isConnected) {
+      this.#needsStart = true;
+      return;
+    }
+    this.#start();
   }
 
   /** Handles the inner `<img>`'s `load` event. Bound, so it can be passed to `@load`. */
@@ -81,6 +100,17 @@ export class ImageLoaderController implements ReactiveController {
     if (!this.#image) return;
     const src = this.#src;
     this.#lease?.detach();
+
+    // A string result is usually a presigned URL that may have expired, so ask once more.
+    if (!this.#image.isObjectUrl && !this.#retried) {
+      this.#retried = true;
+      const generation = this.#generation;
+      this.#releaseResources();
+      this.#host.requestUpdate();
+      // Wait for the render that clears img.src, so an identical URL still triggers a new load.
+      void this.#host.updateComplete.then(() => this.#load(generation));
+      return;
+    }
     this.#fail(new AuthenticatedImageError(`Failed to decode image: ${src}`, { src }));
   };
 
@@ -105,10 +135,16 @@ export class ImageLoaderController implements ReactiveController {
   #start(): void {
     this.#cleanup();
     this.#error = undefined;
+    this.#retried = false;
     this.#status = 'idle';
     this.#host.requestUpdate();
     if (!this.#src) return;
-    void this.#load(this.#generation);
+    const generation = this.#generation;
+    if (this.#lazyLoad) {
+      this.#lazy.whenVisible(() => void this.#load(generation));
+      return;
+    }
+    void this.#load(generation);
   }
 
   async #load(generation: number): Promise<void> {
@@ -167,6 +203,7 @@ export class ImageLoaderController implements ReactiveController {
 
   #cleanup(): void {
     this.#generation++;
+    this.#lazy.cancel();
     this.#releaseResources();
   }
 }

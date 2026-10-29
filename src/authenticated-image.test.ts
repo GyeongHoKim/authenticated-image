@@ -3,6 +3,7 @@ import { MOCK_API_PREFIX, mockAuthHeaders } from '../dev/mock-api-shared';
 import {
   AuthenticatedImageError,
   type AuthenticatedImageErrorEvent,
+  clearCache,
   configure,
   type Fetcher,
 } from './index';
@@ -178,6 +179,27 @@ describe('<authenticated-image>', () => {
 });
 
 describe('<authenticated-image> layout', () => {
+  it('reserves the width and height of a lazy image before it loads', async () => {
+    const fetcher = vi.fn<Fetcher>(async () => svgDataUrl('lazy'));
+    const spacer = document.createElement('div');
+    spacer.style.height = '3000px';
+    document.body.append(spacer);
+    const element = mount({
+      src: 'lazy',
+      alt: 'Lazy',
+      loading: 'lazy',
+      width: 120,
+      height: 80,
+      fetcher,
+    });
+    await element.updateComplete;
+    const { width, height } = element.getBoundingClientRect();
+    expect(width).toBe(120);
+    expect(height).toBe(80);
+    await sleep(100);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it('renders slot content over the reserved box', async () => {
     const fetcher: Fetcher = () => new Promise(() => {});
     const element = mount({ src: 'pending', alt: 'Pending', width: 120, height: 80, fetcher });
@@ -262,6 +284,107 @@ describe('<authenticated-image> layout', () => {
   });
 });
 
+describe('<authenticated-image loading="lazy">', () => {
+  it('waits for the viewport before requesting', async () => {
+    const fetcher = vi.fn<Fetcher>(async () => svgDataUrl('lazy'));
+    const spacer = document.createElement('div');
+    spacer.style.height = '3000px';
+    document.body.append(spacer);
+    const element = mount({ src: 'lazy', loading: 'lazy', fetcher });
+    await element.updateComplete;
+    await sleep(100);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(element.status).toBe('idle');
+    expect(element.getAttribute('aria-busy')).toBe('true');
+    expect(slotNamed(element, 'loading').hidden).toBe(false);
+
+    const loaded = nextEvent(element, 'load');
+    element.scrollIntoView();
+    await loaded;
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('presigned URL retry', () => {
+  it('asks the fetcher again once when a string result fails to load', async () => {
+    const fetcher = vi
+      .fn<Fetcher>()
+      .mockResolvedValueOnce(`${MOCK_API_PREFIX}/signed/fox?expires=0&sig=00`)
+      .mockImplementationOnce(async () => {
+        const response = await fetch(`${MOCK_API_PREFIX}/presign/fox`, {
+          headers: mockAuthHeaders,
+        });
+        return ((await response.json()) as { url: string }).url;
+      });
+    configure({ fetcher });
+    const element = mount({ src: 'fox' });
+    await nextEvent(element, 'load');
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(element.status).toBe('loaded');
+  });
+
+  it('fails when the retry also fails', async () => {
+    const fetcher = vi.fn<Fetcher>(async () => `${MOCK_API_PREFIX}/signed/fox?expires=0&sig=00`);
+    configure({ fetcher });
+    const element = mount({ src: 'fox' });
+    await nextEvent(element, 'error');
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(element.status).toBe('error');
+  });
+
+  it('retries element-level fetchers too', async () => {
+    const fetcher = vi
+      .fn<Fetcher>()
+      .mockResolvedValueOnce(`${MOCK_API_PREFIX}/signed/fox?expires=0&sig=00`)
+      .mockResolvedValueOnce(svgDataUrl('fresh'));
+    const element = mount({ src: 'fox', fetcher });
+    await nextEvent(element, 'load');
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('reload()', () => {
+  it('fetches again, bypassing the cached copy', async () => {
+    const fetcher = vi.fn<Fetcher>(async () => svgBlob());
+    configure({ fetcher });
+    const element = mount({ src: 'a' });
+    await nextEvent(element, 'load');
+    const reloaded = nextEvent(element, 'load');
+    element.reload();
+    await reloaded;
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not evict a newer cache entry that another element uses', async () => {
+    const fetcher = vi.fn<Fetcher>(async () => svgBlob());
+    configure({ fetcher });
+    const stale = mount({ src: 'a' });
+    await nextEvent(stale, 'load');
+    clearCache();
+    const fresh = mount({ src: 'a' });
+    await nextEvent(fresh, 'load');
+    const freshUrl = innerImg(fresh).getAttribute('src');
+
+    const reloaded = nextEvent(stale, 'load');
+    stale.reload();
+    await reloaded;
+    const late = mount({ src: 'a' });
+    await nextEvent(late, 'load');
+    expect(innerImg(late).getAttribute('src')).toBe(freshUrl);
+  });
+
+  it('recovers from an error', async () => {
+    const element = mount({ src: `${images}/cat` });
+    await nextEvent(element, 'error');
+    configure({ headers: mockAuthHeaders });
+    const loaded = nextEvent(element, 'load');
+    element.reload();
+    await loaded;
+    expect(element.status).toBe('loaded');
+    expect(element.error).toBeUndefined();
+  });
+});
+
 describe('element-level fetcher and headers', () => {
   it('does not refetch when given a new but equivalent headers object', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
@@ -273,5 +396,42 @@ describe('element-level fetcher and headers', () => {
     await sleep(50);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(element.status).toBe('loaded');
+  });
+
+  it('does not refetch when given a new fetcher, and uses it on the next load', async () => {
+    const first = vi.fn<Fetcher>(async () => svgBlob());
+    const second = vi.fn<Fetcher>(async () => svgBlob());
+    const element = mount({ src: 'a', fetcher: first });
+    await nextEvent(element, 'load');
+    element.fetcher = second;
+    await element.updateComplete;
+    await sleep(50);
+    expect(second).not.toHaveBeenCalled();
+
+    const reloaded = nextEvent(element, 'load');
+    element.reload();
+    await reloaded;
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('configure() and on-screen images', () => {
+  it('keeps visible images and uses the new configuration for new elements', async () => {
+    const first = vi.fn<Fetcher>(async () => svgBlob());
+    const second = vi.fn<Fetcher>(async () => svgBlob());
+    configure({ fetcher: first });
+    const visible = mount({ src: 'a' });
+    await nextEvent(visible, 'load');
+    const url = innerImg(visible).getAttribute('src');
+
+    configure({ fetcher: second });
+    await sleep(50);
+    expect(second).not.toHaveBeenCalled();
+    expect(innerImg(visible).getAttribute('src')).toBe(url);
+
+    const fresh = mount({ src: 'a' });
+    await nextEvent(fresh, 'load');
+    expect(second).toHaveBeenCalledTimes(1);
   });
 });
