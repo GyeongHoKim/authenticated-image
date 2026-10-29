@@ -1,0 +1,10 @@
+# Local-only working notes (any local/ directory)
+**/local/
+
+node_modules/
+dist/
+coverage/
+**/__screenshots__/
+*.log
+.DS_Store
+.vitest/

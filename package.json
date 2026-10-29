@@ -1,0 +1,73 @@
+{
+  "name": "@gyeonghokim/authenticated-image",
+  "version": "0.0.0-semantic-release",
+  "description": "A drop-in <img> for images behind Authorization headers. Web Component + React.",
+  "keywords": [
+    "web-component",
+    "custom-element",
+    "lit",
+    "image",
+    "img",
+    "authorization",
+    "bearer",
+    "jwt",
+    "blob",
+    "object-url",
+    "react",
+    "presigned-url"
+  ],
+  "homepage": "https://github.com/GyeongHoKim/authenticated-image#readme",
+  "bugs": "https://github.com/GyeongHoKim/authenticated-image/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GyeongHoKim/authenticated-image.git"
+  },
+  "license": "MIT",
+  "author": "GyeongHo Kim <me@gyeongho.dev>",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./react": {
+      "types": "./dist/react.d.mts",
+      "default": "./dist/react.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": [
+    "./dist/*.mjs"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "packageManager": "pnpm@12.14.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "typecheck:dist": "tsc -p tsconfig.dist-check.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "biome check",
+    "format": "biome check --write",
+    "lint:package": "publint --strict",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.4",
+    "@commitlint/cli": "^21.2.4",
+    "@commitlint/config-conventional": "^21.2.4",
+    "@types/node": "^26.6.6",
+    "@vitest/browser-playwright": "^5.0.5",
+    "husky": "^9.1.7",
+    "playwright": "^1.64.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  }
+}
