@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/GyeongHoKim/authenticated-image/compare/v1.0.0...v1.0.1) (2026-11-01)
+
+### Bug Fixes
+
+* exclude generated changelog from formatting ([5d5f76f](https://github.com/GyeongHoKim/authenticated-image/commit/5d5f76fc8cab6541f5a898b3e87a29bd45082722))
+* verify trusted publishing ([657392f](https://github.com/GyeongHoKim/authenticated-image/commit/657392f4e792462495524af08f209eaa65d9cd3a))
+
 ## 1.0.0 (2026-11-01)
 
 ### Features
