@@ -1,6 +1,6 @@
 {
   "name": "@gyeonghokim/authenticated-image",
-  "version": "0.0.0-semantic-release",
+  "version": "1.0.0",
   "description": "A drop-in <img> for images behind Authorization headers. Web Component + React.",
   "keywords": [
     "web-component",
